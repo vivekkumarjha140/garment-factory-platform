@@ -54,3 +54,7 @@ step-3.2-source-review.txt
 
 # Generated frontend build output
 frontend/dist/
+
+# Local-only root Maven starter files
+/pom.xml
+/src/
