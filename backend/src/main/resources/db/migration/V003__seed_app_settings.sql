@@ -1,0 +1,4 @@
+INSERT INTO app_settings (setting_key, setting_value, description) VALUES
+                                                                       ('inventory.reservation_ttl_minutes',      JSON_OBJECT('value', 30), 'Minutes a stock reservation is held for an unpaid order'),
+                                                                       ('inventory.default_low_stock_threshold',  JSON_OBJECT('value', 10), 'Default low-stock alert threshold for new stock rows'),
+                                                                       ('quotation.default_validity_days',        JSON_OBJECT('value', 15), 'Default validity of a sent quotation, in days');

@@ -1,0 +1,21 @@
+CREATE TABLE stock_reservations (
+                                    id           BIGINT       NOT NULL AUTO_INCREMENT,
+                                    public_id    CHAR(36)     NOT NULL,
+                                    order_id     BIGINT       NOT NULL,
+                                    variant_id   BIGINT       NOT NULL,
+                                    quantity     INT          NOT NULL,
+                                    status       VARCHAR(20)  NOT NULL DEFAULT 'ACTIVE',
+                                    expires_at   DATETIME(6)  NOT NULL,
+                                    consumed_at  DATETIME(6)  NULL,
+                                    released_at  DATETIME(6)  NULL,
+                                    created_at   DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                                    updated_at   DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                                    PRIMARY KEY (id),
+                                    UNIQUE KEY uk_stock_reservations_public_id (public_id),
+                                    KEY idx_sres_sweeper (status, expires_at),
+                                    KEY idx_sres_order (order_id),
+                                    KEY idx_sres_variant (variant_id),
+                                    CONSTRAINT fk_sres_variant FOREIGN KEY (variant_id) REFERENCES product_variants (id),
+                                    CONSTRAINT chk_sres_qty_pos CHECK (quantity > 0),
+                                    CONSTRAINT chk_sres_status CHECK (status IN ('ACTIVE','CONSUMED','RELEASED','EXPIRED'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

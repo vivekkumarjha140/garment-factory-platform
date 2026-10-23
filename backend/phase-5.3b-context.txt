@@ -1,0 +1,320 @@
+﻿=== MIGRATIONS ===
+--- V015__create_catalog_permissions.sql
+INSERT INTO permissions (code, description) VALUES
+                                                ('PRODUCT_VIEW',   'View every product, including drafts and inactive ones'),
+                                                ('PRODUCT_WRITE',  'Create and edit products, variants and prices'),
+                                                ('CATEGORY_WRITE', 'Create and edit categories and brands');
+
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r JOIN permissions p ON p.code IN ('PRODUCT_VIEW', 'PRODUCT_WRITE', 'CATEGORY_WRITE')
+WHERE r.code IN ('ADMIN', 'FACTORY_MANAGER', 'SALES_MANAGER');
+
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r JOIN permissions p ON p.code IN ('PRODUCT_VIEW', 'PRODUCT_WRITE')
+WHERE r.code = 'WAREHOUSE_MANAGER';
+
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r JOIN permissions p ON p.code = 'PRODUCT_VIEW'
+WHERE r.code IN ('PRODUCTION_MANAGER', 'DESIGNER', 'FINANCE_MANAGER', 'DISPATCH_MANAGER');
+--- V016__create_categories.sql
+-- Category tree (at most 3 levels, enforced by the service). Categories are deactivated, never deleted.
+CREATE TABLE categories (
+                            id          BIGINT       NOT NULL AUTO_INCREMENT,
+                            public_id   VARCHAR(36)  NOT NULL,
+                            parent_id   BIGINT       NULL,
+                            name        VARCHAR(100) NOT NULL,
+                            slug        VARCHAR(120) NOT NULL,
+                            sort_order  INT          NOT NULL DEFAULT 0,
+                            is_active   TINYINT(1)   NOT NULL DEFAULT 1,
+                            created_at  DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                            updated_at  DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+                            PRIMARY KEY (id),
+                            UNIQUE KEY uq_categories_public_id (public_id),
+                            UNIQUE KEY uq_categories_slug (slug),
+                            KEY idx_categories_parent (parent_id),
+                            CONSTRAINT fk_categories_parent FOREIGN KEY (parent_id) REFERENCES categories (id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci;
+--- V018__create_products.sql
+-- Product definition. What is sold (size and colour, SKU, stock) lives in product_variants.
+-- Products are never deleted: ARCHIVED hides them while order history keeps pointing at them.
+-- gst_rate is data entered by the business per product; the platform assumes no rate.
+CREATE TABLE products (
+                          id              BIGINT        NOT NULL AUTO_INCREMENT,
+                          public_id       VARCHAR(36)   NOT NULL,
+                          category_id     BIGINT        NOT NULL,
+                          brand_id        BIGINT        NULL,
+                          name            VARCHAR(200)  NOT NULL,
+                          slug            VARCHAR(220)  NOT NULL,
+                          description     VARCHAR(4000) NULL,
+                          fabric          VARCHAR(100)  NULL,
+                          gsm             INT           NULL,
+                          composition     VARCHAR(200)  NULL,
+                          hsn_code        VARCHAR(8)    NULL,
+                          gst_rate        DECIMAL(5, 2) NOT NULL DEFAULT 5.00,
+                          base_price      DECIMAL(12, 2) NOT NULL,
+                          mrp             DECIMAL(12, 2) NOT NULL,
+                          is_customizable TINYINT(1)    NOT NULL DEFAULT 0,
+                          status          VARCHAR(20)   NOT NULL DEFAULT 'DRAFT',
+                          avg_rating      DECIMAL(3, 2) NOT NULL DEFAULT 0.00,
+                          review_count    INT           NOT NULL DEFAULT 0,
+                          version         BIGINT        NOT NULL DEFAULT 0,
+                          created_at      DATETIME(6)   NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                          updated_at      DATETIME(6)   NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+                          PRIMARY KEY (id),
+                          UNIQUE KEY uq_products_public_id (public_id),
+                          UNIQUE KEY uq_products_slug (slug),
+                          KEY idx_products_category_status (category_id, status),
+                          KEY idx_products_status_created (status, created_at),
+                          FULLTEXT KEY ft_products_search (name, description),
+                          CONSTRAINT ck_products_status CHECK (status IN ('DRAFT', 'ACTIVE', 'INACTIVE', 'ARCHIVED')),
+                          CONSTRAINT ck_products_prices CHECK (base_price >= 0 AND mrp >= base_price),
+                          CONSTRAINT ck_products_gst CHECK (gst_rate >= 0 AND gst_rate <= 28),
+                          CONSTRAINT fk_products_category FOREIGN KEY (category_id) REFERENCES categories (id),
+                          CONSTRAINT fk_products_brand FOREIGN KEY (brand_id) REFERENCES brands (id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci;
+--- V019__create_product_variants.sql
+-- The sellable unit. The SKU is globally unique and never changes. The collation is case-insensitive,
+-- so "Red" and "red" count as the same colour for the (product, size, colour) uniqueness rule.
+CREATE TABLE product_variants (
+                                  id             BIGINT         NOT NULL AUTO_INCREMENT,
+                                  public_id      VARCHAR(36)    NOT NULL,
+                                  product_id     BIGINT         NOT NULL,
+                                  sku            VARCHAR(64)    NOT NULL,
+                                  size           VARCHAR(20)    NOT NULL,
+                                  color_name     VARCHAR(50)    NOT NULL,
+                                  color_hex      VARCHAR(7)     NULL,
+                                  price_override DECIMAL(12, 2) NULL,
+                                  weight_g       INT            NULL,
+                                  barcode        VARCHAR(32)    NULL,
+                                  status         VARCHAR(20)    NOT NULL DEFAULT 'ACTIVE',
+                                  version        BIGINT         NOT NULL DEFAULT 0,
+                                  created_at     DATETIME(6)    NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                                  updated_at     DATETIME(6)    NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+                                  PRIMARY KEY (id),
+                                  UNIQUE KEY uq_variants_public_id (public_id),
+                                  UNIQUE KEY uq_variants_sku (sku),
+                                  UNIQUE KEY uq_variants_product_size_color (product_id, size, color_name),
+                                  UNIQUE KEY uq_variants_barcode (barcode),
+                                  KEY idx_variants_product_status (product_id, status),
+                                  CONSTRAINT ck_variants_status CHECK (status IN ('ACTIVE', 'INACTIVE', 'ARCHIVED')),
+                                  CONSTRAINT ck_variants_price CHECK (price_override IS NULL OR price_override >= 0),
+                                  CONSTRAINT fk_variants_product FOREIGN KEY (product_id) REFERENCES products (id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci;
+=== USERS / ROLES / PERMISSIONS MIGRATIONS ===
+--- V004__create_users.sql
+CREATE TABLE users (
+                       id                 BIGINT       NOT NULL AUTO_INCREMENT,
+                       public_id          VARCHAR(36)  NOT NULL,
+                       email              VARCHAR(254) NOT NULL,
+                       password_hash      VARCHAR(255) NOT NULL,
+                       full_name          VARCHAR(120) NOT NULL,
+                       phone              VARCHAR(20)  NULL,
+                       status             VARCHAR(30)  NOT NULL DEFAULT 'PENDING_VERIFICATION',
+                       email_verified_at  DATETIME(6)  NULL,
+                       failed_login_count INT          NOT NULL DEFAULT 0,
+                       locked_until       DATETIME(6)  NULL,
+                       last_login_at      DATETIME(6)  NULL,
+                       version            BIGINT       NOT NULL DEFAULT 0,
+                       created_at         DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                       updated_at         DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+                       PRIMARY KEY (id),
+                       UNIQUE KEY uq_users_public_id (public_id),
+                       UNIQUE KEY uq_users_email (email),
+                       KEY idx_users_status (status),
+                       CONSTRAINT ck_users_status CHECK (status IN ('PENDING_VERIFICATION', 'ACTIVE', 'BLOCKED', 'DISABLED')),
+                       CONSTRAINT ck_users_failed_login CHECK (failed_login_count >= 0)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci;
+--- V005__create_roles.sql
+CREATE TABLE roles (
+                       id          BIGINT       NOT NULL AUTO_INCREMENT,
+                       code        VARCHAR(50)  NOT NULL,
+                       name        VARCHAR(100) NOT NULL,
+                       description VARCHAR(255) NULL,
+                       is_system   TINYINT(1)   NOT NULL DEFAULT 0,
+                       created_at  DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                       updated_at  DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+                       PRIMARY KEY (id),
+                       UNIQUE KEY uq_roles_code (code)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci;
+--- V006__create_permissions.sql
+CREATE TABLE permissions (
+                             id          BIGINT       NOT NULL AUTO_INCREMENT,
+                             code        VARCHAR(80)  NOT NULL,
+                             description VARCHAR(255) NULL,
+                             created_at  DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                             updated_at  DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+                             PRIMARY KEY (id),
+                             UNIQUE KEY uq_permissions_code (code)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci;
+--- V007__create_role_permissions.sql
+CREATE TABLE role_permissions (
+                                  role_id       BIGINT NOT NULL,
+                                  permission_id BIGINT NOT NULL,
+                                  PRIMARY KEY (role_id, permission_id),
+                                  CONSTRAINT fk_role_permissions_role FOREIGN KEY (role_id) REFERENCES roles (id) ON DELETE CASCADE,
+                                  CONSTRAINT fk_role_permissions_permission FOREIGN KEY (permission_id) REFERENCES permissions (id) ON DELETE CASCADE
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci;
+--- V008__create_user_roles.sql
+CREATE TABLE user_roles (
+                            user_id BIGINT NOT NULL,
+                            role_id BIGINT NOT NULL,
+                            PRIMARY KEY (user_id, role_id),
+                            KEY idx_user_roles_role (role_id),
+                            CONSTRAINT fk_user_roles_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                            CONSTRAINT fk_user_roles_role FOREIGN KEY (role_id) REFERENCES roles (id) ON DELETE RESTRICT
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci;
+=== AUTH USAGE ===
+D:\AJDA\garment-factory-platform\backend\src\main\java\com\garmentfactory\audit\controller\AuditLogController.java:26: @PreAuthorize("hasAuthority('AUDIT_VIEW')")
+D:\AJDA\garment-factory-platform\backend\src\main\java\com\garmentfactory\audit\service\DatabaseAuditRecorder.java:51: if (authentication != null && authentication.getPrincipal() instanceof AuthenticatedUser user) {
+D:\AJDA\garment-factory-platform\backend\src\main\java\com\garmentfactory\catalog\controller\AdminCategoryController.java:38: @PreAuthorize("hasAuthority('PRODUCT_VIEW')")
+D:\AJDA\garment-factory-platform\backend\src\main\java\com\garmentfactory\catalog\controller\AdminCategoryController.java:45: @PreAuthorize("hasAuthority('CATEGORY_WRITE')")
+D:\AJDA\garment-factory-platform\backend\src\main\java\com\garmentfactory\catalog\controller\AdminCategoryController.java:51: @PreAuthorize("hasAuthority('CATEGORY_WRITE')")
+D:\AJDA\garment-factory-platform\backend\src\main\java\com\garmentfactory\catalog\controller\AdminCategoryController.java:57: @PreAuthorize("hasAuthority('PRODUCT_VIEW')")
+D:\AJDA\garment-factory-platform\backend\src\main\java\com\garmentfactory\catalog\controller\AdminCategoryController.java:64: @PreAuthorize("hasAuthority('CATEGORY_WRITE')")
+D:\AJDA\garment-factory-platform\backend\src\main\java\com\garmentfactory\catalog\controller\AdminCategoryController.java:70: @PreAuthorize("hasAuthority('CATEGORY_WRITE')")
+D:\AJDA\garment-factory-platform\backend\src\main\java\com\garmentfactory\catalog\controller\AdminImageController.java:38: @PreAuthorize("hasAuthority('PRODUCT_VIEW')")
+D:\AJDA\garment-factory-platform\backend\src\main\java\com\garmentfactory\catalog\controller\AdminImageController.java:46: @PreAuthorize("hasAuthority('PRODUCT_WRITE')")
+D:\AJDA\garment-factory-platform\backend\src\main\java\com\garmentfactory\catalog\controller\AdminImageController.java:55: @PreAuthorize("hasAuthority('PRODUCT_WRITE')")
+D:\AJDA\garment-factory-platform\backend\src\main\java\com\garmentfactory\catalog\controller\AdminImageController.java:63: @PreAuthorize("hasAuthority('PRODUCT_WRITE')")
+D:\AJDA\garment-factory-platform\backend\src\main\java\com\garmentfactory\catalog\controller\AdminImageController.java:70: @PreAuthorize("hasAuthority('PRODUCT_VIEW')")
+D:\AJDA\garment-factory-platform\backend\src\main\java\com\garmentfactory\catalog\controller\AdminProductController.java:49: @PreAuthorize("hasAuthority('PRODUCT_VIEW')")
+D:\AJDA\garment-factory-platform\backend\src\main\java\com\garmentfactory\catalog\controller\AdminProductController.java:59: @PreAuthorize("hasAuthority('PRODUCT_VIEW')")
+=== EXCEPTION HANDLERS ===
+--- D:\AJDA\garment-factory-platform\backend\src\main\java\com\garmentfactory\shared\exception\GlobalExceptionHandler.java
+package com.garmentfactory.shared.exception;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.web.ErrorResponse;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+/** One place that turns exceptions into RFC 9457 problem responses without leaking internals. */
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    @ExceptionHandler(TooManyRequestsException.class)
+    ResponseEntity<ProblemDetail> handleTooManyRequests(TooManyRequestsException ex) {
+        ResponseEntity<ProblemDetail> base = problem(ex.getStatus(), ex.getCode(), ex.getMessage());
+        return ResponseEntity.status(base.getStatusCode())
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfterSeconds()))
+                .body(base.getBody());
+    }
+
+    @ExceptionHandler(ApiException.class)
+    ResponseEntity<ProblemDetail> handleApi(ApiException ex) {
+        return problem(ex.getStatus(), ex.getCode(), ex.getMessage());
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    ResponseEntity<ProblemDetail> handleValidation(MethodArgumentNotValidException ex) {
+        Map<String, String> errors = new LinkedHashMap<>();
+        ex.getBindingResult().getFieldErrors()
+                .forEach(error -> errors.putIfAbsent(error.getField(), error.getDefaultMessage()));
+        ResponseEntity<ProblemDetail> response = problem(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "Request validation failed");
+        response.getBody().setProperty("errors", errors);
+        return response;
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    ResponseEntity<ProblemDetail> handleUnreadable(HttpMessageNotReadableException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "MALFORMED_REQUEST", "Request body is missing or malformed");
+    }
+
+    @ExceptionHandler(AuthenticationException.class)
+    ResponseEntity<ProblemDetail> handleAuthentication(AuthenticationException ex) {
+        return problem(HttpStatus.UNAUTHORIZED, "UNAUTHENTICATED", "Authentication is required");
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    ResponseEntity<ProblemDetail> handleAccessDenied(AccessDeniedException ex) {
+        return problem(HttpStatus.FORBIDDEN, "FORBIDDEN", "You do not have permission to perform this action");
+    }
+
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    ResponseEntity<ProblemDetail> handleConcurrentUpdate(ObjectOptimisticLockingFailureException ex) {
+        return problem(HttpStatus.CONFLICT, "CONCURRENT_UPDATE", "The record was changed by someone else. Reload and try again");
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    ResponseEntity<ProblemDetail> handleIntegrity(DataIntegrityViolationException ex) {
+        log.warn("Data integrity violation: {}", ex.getClass().getSimpleName());
+        return problem(HttpStatus.CONFLICT, "CONFLICT", "The request conflicts with existing data");
+    }
+
+    @ExceptionHandler(Exception.class)
+    ResponseEntity<ProblemDetail> handleUnexpected(Exception ex) {
+        if (ex instanceof ErrorResponse errorResponse) {
+            // Spring MVC's own exceptions (404, 405, 415, missing header...) already carry the right status.
+            return ResponseEntity.status(errorResponse.getStatusCode()).body(errorResponse.getBody());
+        }
+        log.error("Unhandled exception", ex);
+        return problem(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "An unexpected error occurred");
+    }
+
+    private static ResponseEntity<ProblemDetail> problem(HttpStatus status, String code, String detail) {
+        ProblemDetail body = ProblemDetail.forStatusAndDetail(status, detail);
+        body.setTitle(status.getReasonPhrase());
+        body.setProperty("code", code);
+        return ResponseEntity.status(status).body(body);
+    }
+}
+=== TEST FILES ===
+D:\AJDA\garment-factory-platform\backend\src\test\java\com\garmentfactory\GarmentFactoryApplicationTests.java
+D:\AJDA\garment-factory-platform\backend\src\test\java\com\garmentfactory\InfrastructureIT.java
+D:\AJDA\garment-factory-platform\backend\src\test\java\com\garmentfactory\architecture\ModuleBoundaryTest.java
+D:\AJDA\garment-factory-platform\backend\src\test\java\com\garmentfactory\catalog\CatalogSortTest.java
+D:\AJDA\garment-factory-platform\backend\src\test\java\com\garmentfactory\catalog\CataolgAdminApiIT.java
+D:\AJDA\garment-factory-platform\backend\src\test\java\com\garmentfactory\catalog\CategoryTreeTest.java
+D:\AJDA\garment-factory-platform\backend\src\test\java\com\garmentfactory\catalog\ImageValidatorTest.java
+D:\AJDA\garment-factory-platform\backend\src\test\java\com\garmentfactory\catalog\PriceTiersTest.java
+D:\AJDA\garment-factory-platform\backend\src\test\java\com\garmentfactory\catalog\PublicCatalogApiIT.java
+D:\AJDA\garment-factory-platform\backend\src\test\java\com\garmentfactory\catalog\SizesTest.java
+D:\AJDA\garment-factory-platform\backend\src\test\java\com\garmentfactory\catalog\SlugsTest.java
+D:\AJDA\garment-factory-platform\backend\src\test\java\com\garmentfactory\customer\AddressServiceTest.java
+D:\AJDA\garment-factory-platform\backend\src\test\java\com\garmentfactory\customer\CustomerApiIT.java
+D:\AJDA\garment-factory-platform\backend\src\test\java\com\garmentfactory\customer\IndianStatesTest.java
+D:\AJDA\garment-factory-platform\backend\src\test\java\com\garmentfactory\identity\AccountIT.java
+D:\AJDA\garment-factory-platform\backend\src\test\java\com\garmentfactory\identity\AdminApiIT.java
+D:\AJDA\garment-factory-platform\backend\src\test\java\com\garmentfactory\identity\AuthFlowIT.java
+D:\AJDA\garment-factory-platform\backend\src\test\java\com\garmentfactory\identity\LastAdminGuardTest.java
+D:\AJDA\garment-factory-platform\backend\src\test\java\com\garmentfactory\identity\PasswordPolicyTest.java
+D:\AJDA\garment-factory-platform\backend\src\test\java\com\garmentfactory\identity\RateLimitGuardTest.java
+D:\AJDA\garment-factory-platform\backend\src\test\java\com\garmentfactory\identity\RateLimitIT.java
+D:\AJDA\garment-factory-platform\backend\src\test\java\com\garmentfactory\identity\RefreshTokenServiceTest.java
+D:\AJDA\garment-factory-platform\backend\src\test\java\com\garmentfactory\identity\TestProperties.java
+D:\AJDA\garment-factory-platform\backend\src\test\java\com\garmentfactory\integration\localfs\LocalFileStorageTest.java
+D:\AJDA\garment-factory-platform\backend\src\test\java\com\garmentfactory\shared\TransitionRulesTest.java
+D:\AJDA\garment-factory-platform\backend\src\test\java\com\garmentfactory\shared\ratelimit\RedisRateLimiterTest.java
+D:\AJDA\garment-factory-platform\backend\src\test\java\com\garmentfactory\support\ApiClient.java
+D:\AJDA\garment-factory-platform\backend\src\test\java\com\garmentfactory\support\CapturingEmailSender.java

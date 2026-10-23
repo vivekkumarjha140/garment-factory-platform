@@ -1,0 +1,20 @@
+# Datasource URL, username and password come from the Testcontainers @ServiceConnection.
+# The literals below exist only so property placeholders resolve in tests.
+spring:
+  datasource:
+    password: test
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+app:
+  cors:
+    allowed-origins: http://localhost:5173
+  rate-limit:
+    enabled: false
+  storage:
+    local-root: ${java.io.tmpdir}/gf-test-uploads
+  security:
+    jwt:
+      secret: Z2FybWVudC1mYWN0b3J5LXRlc3Qtb25seS1qd3Qtc2lnbmluZy1rZXktNDhiISE=

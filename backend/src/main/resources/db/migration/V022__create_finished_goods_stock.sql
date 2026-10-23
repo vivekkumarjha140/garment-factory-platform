@@ -1,0 +1,21 @@
+CREATE TABLE finished_goods_stock (
+                                      id                  BIGINT       NOT NULL AUTO_INCREMENT,
+                                      public_id           CHAR(36)     NOT NULL,
+                                      variant_id          BIGINT       NOT NULL,
+                                      on_hand             INT          NOT NULL DEFAULT 0,
+                                      reserved            INT          NOT NULL DEFAULT 0,
+                                      damaged             INT          NOT NULL DEFAULT 0,
+                                      low_stock_threshold INT          NOT NULL DEFAULT 10,
+                                      version             BIGINT       NOT NULL DEFAULT 0,
+                                      created_at          DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                                      updated_at          DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                                      PRIMARY KEY (id),
+                                      UNIQUE KEY uk_fgs_public_id (public_id),
+                                      UNIQUE KEY uk_fgs_variant (variant_id),
+                                      CONSTRAINT fk_fgs_variant FOREIGN KEY (variant_id) REFERENCES product_variants (id),
+                                      CONSTRAINT chk_fgs_on_hand_nonneg  CHECK (on_hand >= 0),
+                                      CONSTRAINT chk_fgs_reserved_nonneg CHECK (reserved >= 0),
+                                      CONSTRAINT chk_fgs_damaged_nonneg  CHECK (damaged >= 0),
+                                      CONSTRAINT chk_fgs_threshold_nonneg CHECK (low_stock_threshold >= 0),
+                                      CONSTRAINT chk_fgs_reserved_le_on_hand CHECK (reserved <= on_hand)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

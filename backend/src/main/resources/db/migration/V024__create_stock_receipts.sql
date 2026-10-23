@@ -1,0 +1,30 @@
+CREATE TABLE stock_receipts (
+                                id                  BIGINT         NOT NULL AUTO_INCREMENT,
+                                public_id           CHAR(36)       NOT NULL,
+                                receipt_number      VARCHAR(30)    NOT NULL,
+                                item_type           VARCHAR(20)    NOT NULL,
+                                variant_id          BIGINT         NULL,
+                                raw_material_id     BIGINT         NULL,
+                                quantity            DECIMAL(14,3)  NOT NULL,
+                                unit_cost           DECIMAL(12,4)  NULL,
+                                supplier_name       VARCHAR(150)   NULL,
+                                supplier_reference  VARCHAR(100)   NULL,
+                                notes               VARCHAR(500)   NULL,
+                                received_at         DATETIME(6)    NOT NULL,
+                                received_by_user_id BIGINT         NOT NULL,
+                                created_at          DATETIME(6)    NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                                PRIMARY KEY (id),
+                                UNIQUE KEY uk_stock_receipts_public_id (public_id),
+                                UNIQUE KEY uk_stock_receipts_number (receipt_number),
+                                KEY idx_stock_receipts_variant (variant_id),
+                                KEY idx_stock_receipts_raw (raw_material_id),
+                                KEY idx_stock_receipts_received_at (received_at),
+                                CONSTRAINT fk_sr_variant FOREIGN KEY (variant_id) REFERENCES product_variants (id),
+                                CONSTRAINT fk_sr_raw FOREIGN KEY (raw_material_id) REFERENCES raw_materials (id),
+                                CONSTRAINT fk_sr_user FOREIGN KEY (received_by_user_id) REFERENCES users (id),
+                                CONSTRAINT chk_sr_item_type CHECK (item_type IN ('FINISHED_GOOD','RAW_MATERIAL')),
+                                CONSTRAINT chk_sr_quantity_pos CHECK (quantity > 0),
+                                CONSTRAINT chk_sr_target CHECK (
+                                    (item_type = 'FINISHED_GOOD' AND variant_id IS NOT NULL AND raw_material_id IS NULL) OR
+                                    (item_type = 'RAW_MATERIAL'  AND raw_material_id IS NOT NULL AND variant_id IS NULL))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
