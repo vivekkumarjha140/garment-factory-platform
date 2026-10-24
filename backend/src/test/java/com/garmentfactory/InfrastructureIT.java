@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.core.env.Environment;
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
@@ -31,8 +32,8 @@ class InfrastructureIT {
 
     @Container
     @ServiceConnection
-    static final MySQLContainer MYSQL = new MySQLContainer("mysql:8.4");
-
+    static final MySQLContainer MYSQL = new MySQLContainer("mysql:8.4")
+            .withCommand("--log-bin-trust-function-creators=1");
     @Autowired
     private Environment environment;
 
@@ -45,24 +46,22 @@ class InfrastructureIT {
         return HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
     }
 
-
     @Test
-    void flywayAppliesAllMigrations() {
+    void flywayAppliesAllMigrations() throws Exception {
+        // The expected count comes from the migration files themselves, so it never goes stale.
+        int migrationFiles = new PathMatchingResourcePatternResolver()
+                .getResources("classpath:db/migration/V*.sql").length;
         Integer applied = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1",
-                Integer.class);
+                "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1", Integer.class);
         Integer failed = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 0",
-                Integer.class);
-        Integer settings = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM app_settings",
-                Integer.class);
+                "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 0", Integer.class);
+        Integer settings = jdbc.queryForObject("SELECT COUNT(*) FROM app_settings", Integer.class);
 
-        assertThat(applied).isGreaterThanOrEqualTo(21);
+        assertThat(migrationFiles).isGreaterThan(0);
         assertThat(failed).isZero();
+        assertThat(applied).isEqualTo(migrationFiles);
         assertThat(settings).isEqualTo(3);
     }
-
 
     @Test
     void checkConstraintsAreEnforcedByMysql() {

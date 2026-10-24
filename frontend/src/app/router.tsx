@@ -11,6 +11,10 @@ import { VerifyEmailPage } from '../features/auth/pages/VerifyEmailPage'
 import { Permission } from '../features/auth/permissions'
 import { ProductDetailPage } from '../features/catalog/ProductDetailPage'
 import { ProductListPage } from '../features/catalog/ProductListPage'
+import { AuditDetailPage } from '../features/inventory/AuditDetailPage'
+import { AuditListPage } from '../features/inventory/AuditListPage'
+import { RawMaterialsPage } from '../features/inventory/RawMaterialsPage'
+import { StockDashboardPage } from '../features/inventory/StockDashboardPage'
 import { AppLayout } from '../features/layout/AppLayout'
 import { HomePage } from '../features/layout/HomePage'
 import { NotFoundPage } from '../features/layout/NotFoundPage'
@@ -44,6 +48,20 @@ export const router = createBrowserRouter([
                         // UX only: the backend enforces the same permission on every call.
                         element: <RequirePermission permission={Permission.USER_VIEW} />,
                         children: [{ path: '/admin/users', element: <AdminUsersPage /> }],
+                    },
+                    {
+                        element: <RequirePermission permission={Permission.STOCK_VIEW} />,
+                        children: [
+                            { path: '/admin/inventory', element: <StockDashboardPage /> },
+                            { path: '/admin/inventory/raw-materials', element: <RawMaterialsPage /> },
+                        ],
+                    },
+                    {
+                        element: <RequirePermission permission={Permission.INVENTORY_AUDIT} />,
+                        children: [
+                            { path: '/admin/inventory/audits', element: <AuditListPage /> },
+                            { path: '/admin/inventory/audits/:publicId', element: <AuditDetailPage /> },
+                        ],
                     },
                 ],
             },

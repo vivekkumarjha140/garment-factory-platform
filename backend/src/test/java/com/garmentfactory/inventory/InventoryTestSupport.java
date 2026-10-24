@@ -79,6 +79,17 @@ final class InventoryTestSupport {
         return jdbc.queryForObject("SELECT id FROM product_variants WHERE public_id = ?", Long.class, variant);
     }
 
+    /** A catalog variant with NO stock row (the stock row is created automatically, so remove it). */
+    long createVariantWithoutStockRow() throws Exception {
+        long variantId = createVariant();
+
+        jdbc.update(
+                "DELETE FROM finished_goods_stock WHERE variant_id = ?",
+                variantId);
+
+        return variantId;
+    }
+
     /** A variant with a stock row and the given on-hand quantity (received through the API). */
     long createStockedVariant(int onHand) throws Exception {
         long variantId = createVariant();

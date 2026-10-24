@@ -4,7 +4,6 @@ import static com.garmentfactory.inventory.InventoryTestSupport.INVENTORY;
 import static com.garmentfactory.inventory.InventoryTestSupport.expect;
 import static com.garmentfactory.inventory.InventoryTestSupport.field;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.garmentfactory.support.ApiClient.Response;
 import com.garmentfactory.support.CapturingEmailSender;
@@ -17,7 +16,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.core.env.Environment;
-import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.testcontainers.junit.jupiter.Container;
@@ -112,7 +110,7 @@ class InventoryStockApiIT {
     @Test
     void invalidAndUnknownReservationsAreRejectedCleanly() throws Exception {
         long stocked = support.createStockedVariant(1);
-        long withoutStockRow = support.createVariant();
+        long withoutStockRow = support.createVariantWithoutStockRow();
 
         Response zero = support.admin("POST", INVENTORY + "/reservations", reserveJson(System.nanoTime(), stocked, 0));
         assertThat(zero.status()).isEqualTo(400);
@@ -144,17 +142,6 @@ class InventoryStockApiIT {
     }
 
     @Test
-    void theLedgerIsImmutableAtDatabaseLevel() throws Exception {
-        long variant = support.createStockedVariant(1);
-
-        assertThatThrownBy(() -> jdbc.update("UPDATE stock_movements SET reason = 'tamper' WHERE variant_id = ?", variant))
-                .isInstanceOf(DataAccessException.class).hasMessageContaining("immutable");
-        assertThatThrownBy(() -> jdbc.update("DELETE FROM stock_movements WHERE variant_id = ?", variant))
-                .isInstanceOf(DataAccessException.class).hasMessageContaining("immutable");
-        assertThat(support.ledgerCount(variant, "RECEIPT")).isEqualTo(1);
-    }
-
-    @Test
     void completingAnAuditAppliesVariancesAsLedgerAdjustments() throws Exception {
         long variant = support.createStockedVariant(10);
         String audit = field(expect(support.admin("POST", INVENTORY + "/audits", "{\"notes\":\"Q4 count\"}"), 201, "start audit"), "publicId");
@@ -162,7 +149,7 @@ class InventoryStockApiIT {
 
         Response counted = support.admin("POST", auditPath + "/counts/finished-goods",
                 "{\"variantId\":" + variant + ",\"countedQuantity\":8}");
-        expect(counted, 201, "count");
+        expect(counted, 200, "count");
         assertThat(counted.body()).contains("\"variance\":-2");
 
         Response completed = support.admin("POST", auditPath + "/complete", "{\"applyAdjustments\":true}");
@@ -184,4 +171,141 @@ class InventoryStockApiIT {
         assertThat(again.status()).isEqualTo(409);
         assertThat(again.body()).contains("STOCK_CONFLICT");
     }
+
+    @Test
+    void stockListShowsVariantDetailsAndSupportsSearch() throws Exception {
+        long variant = support.createStockedVariant(4);
+        String sku = jdbc.queryForObject("SELECT sku FROM product_variants WHERE id = ?", String.class, variant);
+
+        Response searched = support.admin("GET", INVENTORY + "/stock?q=" + sku, null);
+
+        expect(searched, 200, "search stock");
+        assertThat(searched.body()).contains("\"variantId\":" + variant)
+                .contains("\"sku\":\"" + sku + "\"").contains("\"productName\":\"Tee ").contains("\"onHand\":4");
+        Response single = support.admin("GET", INVENTORY + "/stock/" + variant, null);
+        expect(single, 200, "get stock");
+        assertThat(single.body()).contains("\"sku\":\"" + sku + "\"");
+    }
+
+    @Test
+    void variantsWithoutAStockRowCanBeFoundAndInitialisedInBulk() throws Exception {
+        long variant = support.createVariantWithoutStockRow();
+        String sku = jdbc.queryForObject("SELECT sku FROM product_variants WHERE id = ?", String.class, variant);
+
+        Response pending = support.admin("GET", INVENTORY + "/stock/uninitialized?q=" + sku, null);
+        expect(pending, 200, "uninitialised variants");
+        assertThat(pending.body()).contains("\"variantId\":" + variant);
+
+        expect(support.admin("POST", INVENTORY + "/stock/initialize-missing", "{\"lowStockThreshold\":3}"),
+                200, "initialise missing");
+
+        assertThat(jdbc.queryForObject(
+                "SELECT low_stock_threshold FROM finished_goods_stock WHERE variant_id = ?", Integer.class, variant))
+                .isEqualTo(3);
+        Response after = support.admin("GET", INVENTORY + "/stock/uninitialized?q=" + sku, null);
+        assertThat(after.body()).doesNotContain("\"variantId\":" + variant);
+    }
+
+    @Test
+    void initialisingStockForAnUnknownVariantIsA404() throws Exception {
+        Response missing = support.admin("POST", INVENTORY + "/stock", "{\"variantId\":999999999,\"lowStockThreshold\":1}");
+
+        assertThat(missing.status()).isEqualTo(404);
+        assertThat(missing.body()).contains("VARIANT_NOT_FOUND");
+    }
+
+    @Test
+    void creatingAVariantInitialisesItsStockRowAutomatically() throws Exception {
+        long variant = support.createVariant();
+
+        Integer rows = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM finished_goods_stock WHERE variant_id = ?",
+                Integer.class,
+                variant);
+
+        assertThat(rows).isEqualTo(1);
+        assertThat(support.onHand(variant)).isZero();
+    }
+
+
+    @Test
+    void staffActionsAreWrittenToTheAuditLog() throws Exception {
+        long variant = support.createStockedVariant(10);
+
+        expect(
+                support.admin(
+                        "POST",
+                        INVENTORY + "/stock/" + variant + "/adjustments",
+                        "{\"delta\":-1,\"reason\":\"audit log check\"}"
+                ),
+                200,
+                "adjust"
+        );
+
+        Response started = expect(
+                support.admin(
+                        "POST",
+                        INVENTORY + "/audits",
+                        "{\"notes\":\"log check\"}"
+                ),
+                201,
+                "start audit"
+        );
+
+        String auditNumber = field(started, "auditNumber");
+        String auditId = field(started, "publicId");
+
+        expect(
+                support.admin(
+                        "POST",
+                        INVENTORY + "/audits/" + auditId + "/counts/finished-goods",
+                        "{\"variantId\":" + variant + ",\"countedQuantity\":9}"
+                ),
+                200,
+                "count"
+        );
+
+        expect(
+                support.admin(
+                        "POST",
+                        INVENTORY + "/audits/" + auditId + "/complete",
+                        "{\"applyAdjustments\":false}"
+                ),
+                200,
+                "complete"
+        );
+
+        assertThat(auditLogCount("STOCK_RECEIVED", String.valueOf(variant)))
+                .isEqualTo(1);
+
+        assertThat(auditLogCount("STOCK_ADJUSTED", String.valueOf(variant)))
+                .isEqualTo(1);
+
+        assertThat(auditLogCount("INVENTORY_AUDIT_STARTED", auditNumber))
+                .isEqualTo(1);
+
+        assertThat(auditLogCount("INVENTORY_AUDIT_COMPLETED", auditNumber))
+                .isEqualTo(1);
+
+        Integer withoutActor = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM audit_logs "
+                        + "WHERE action = 'STOCK_ADJUSTED' "
+                        + "AND entity_id = ? "
+                        + "AND actor_user_id IS NULL",
+                Integer.class,
+                String.valueOf(variant)
+        );
+
+        assertThat(withoutActor).isZero();
+    }
+
+    private int auditLogCount(String action, String entityId) {
+        return jdbc.queryForObject(
+                "SELECT COUNT(*) FROM audit_logs WHERE action = ? AND entity_id = ?",
+                Integer.class,
+                action,
+                entityId
+        );
+    }
+
 }

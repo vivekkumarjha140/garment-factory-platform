@@ -13,6 +13,8 @@ export const NAV_ITEMS: NavItem[] = [
     { to: '/', label: 'Home' },
     { to: '/shop', label: 'Shop' },
     { to: '/admin/users', label: 'Users', auth: true, requires: Permission.USER_VIEW },
+    { to: '/admin/inventory', label: 'Inventory', auth: true, requires: Permission.STOCK_VIEW },
+    { to: '/admin/inventory/audits', label: 'Stock audits', auth: true, requires: Permission.INVENTORY_AUDIT },
     { to: '/account', label: 'Account', auth: true },
 ]
 

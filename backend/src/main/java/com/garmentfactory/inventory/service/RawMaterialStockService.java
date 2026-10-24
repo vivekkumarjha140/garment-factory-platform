@@ -1,6 +1,12 @@
 package com.garmentfactory.inventory.service;
 
-import com.garmentfactory.inventory.entity.*;
+import com.garmentfactory.audit.api.AuditEvent;
+import com.garmentfactory.audit.api.AuditRecorder;
+import com.garmentfactory.inventory.entity.MovementType;
+import com.garmentfactory.inventory.entity.RawMaterial;
+import com.garmentfactory.inventory.entity.RawMaterialCategory;
+import com.garmentfactory.inventory.entity.StockMovement;
+import com.garmentfactory.inventory.entity.StockReceipt;
 import com.garmentfactory.inventory.exception.InsufficientStockException;
 import com.garmentfactory.inventory.exception.InvalidStockOperationException;
 import com.garmentfactory.inventory.exception.StockConflictException;
@@ -8,13 +14,12 @@ import com.garmentfactory.inventory.exception.StockNotFoundException;
 import com.garmentfactory.inventory.repository.RawMaterialRepository;
 import com.garmentfactory.inventory.repository.StockMovementRepository;
 import com.garmentfactory.inventory.repository.StockReceiptRepository;
+import java.math.BigDecimal;
+import java.time.Instant;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.math.BigDecimal;
-import java.time.Instant;
 
 @Service
 public class RawMaterialStockService {
@@ -24,38 +29,89 @@ public class RawMaterialStockService {
     private final RawMaterialRepository rawMaterialRepository;
     private final StockMovementRepository movementRepository;
     private final StockReceiptRepository receiptRepository;
+    private final AuditRecorder auditRecorder;
 
-    public RawMaterialStockService(RawMaterialRepository rawMaterialRepository,
-                                   StockMovementRepository movementRepository,
-                                   StockReceiptRepository receiptRepository) {
+    public RawMaterialStockService(
+            RawMaterialRepository rawMaterialRepository,
+            StockMovementRepository movementRepository,
+            StockReceiptRepository receiptRepository,
+            AuditRecorder auditRecorder) {
+
         this.rawMaterialRepository = rawMaterialRepository;
         this.movementRepository = movementRepository;
         this.receiptRepository = receiptRepository;
+        this.auditRecorder = auditRecorder;
     }
 
     @Transactional(readOnly = true)
-    public RawMaterial get(Long id) { return load(id); }
+    public RawMaterial get(Long id) {
+        return load(id);
+    }
 
     @Transactional(readOnly = true)
-    public Page<RawMaterial> listLowStock(Pageable pageable) { return rawMaterialRepository.findLowStock(pageable); }
+    public Page<RawMaterial> listLowStock(Pageable pageable) {
+        return rawMaterialRepository.findLowStock(pageable);
+    }
 
     @Transactional
-    public RawMaterial create(String code, String name, RawMaterialCategory category, String uom,
-                              BigDecimal lowStockThreshold, BigDecimal unitCost) {
-        if (code == null || code.isBlank()) throw new InvalidStockOperationException("Code is required");
-        if (name == null || name.isBlank()) throw new InvalidStockOperationException("Name is required");
-        if (category == null) throw new InvalidStockOperationException("Category is required");
-        if (uom == null || uom.isBlank()) throw new InvalidStockOperationException("Unit of measure is required");
-        BigDecimal threshold = lowStockThreshold == null ? BigDecimal.ZERO : lowStockThreshold;
-        BigDecimal cost = unitCost == null ? BigDecimal.ZERO : unitCost;
+    public RawMaterial create(
+            String code,
+            String name,
+            RawMaterialCategory category,
+            String uom,
+            BigDecimal lowStockThreshold,
+            BigDecimal unitCost) {
+
+        if (code == null || code.isBlank()) {
+            throw new InvalidStockOperationException("Code is required");
+        }
+
+        if (name == null || name.isBlank()) {
+            throw new InvalidStockOperationException("Name is required");
+        }
+
+        if (category == null) {
+            throw new InvalidStockOperationException("Category is required");
+        }
+
+        if (uom == null || uom.isBlank()) {
+            throw new InvalidStockOperationException("Unit of measure is required");
+        }
+
+        BigDecimal threshold =
+                lowStockThreshold == null ? BigDecimal.ZERO : lowStockThreshold;
+
+        BigDecimal cost =
+                unitCost == null ? BigDecimal.ZERO : unitCost;
+
         if (threshold.signum() < 0 || cost.signum() < 0) {
-            throw new InvalidStockOperationException("Threshold and unit cost cannot be negative");
+            throw new InvalidStockOperationException(
+                    "Threshold and unit cost cannot be negative");
         }
+
         String normalized = code.trim().toUpperCase();
+
         if (rawMaterialRepository.existsByCode(normalized)) {
-            throw new StockConflictException("Raw material code already exists: " + normalized);
+            throw new StockConflictException(
+                    "Raw material code already exists: " + normalized);
         }
-        return rawMaterialRepository.save(new RawMaterial(normalized, name.trim(), category, uom.trim(), threshold, cost));
+
+        RawMaterial saved = rawMaterialRepository.save(
+                new RawMaterial(
+                        normalized,
+                        name.trim(),
+                        category,
+                        uom.trim(),
+                        threshold,
+                        cost));
+
+        audit(
+                "RAW_MATERIAL_CREATED",
+                normalized,
+                "name=" + AuditText.shorten(name, 150)
+                        + ", category=" + category);
+
+        return saved;
     }
 
     @Transactional
@@ -83,12 +139,15 @@ public class RawMaterialStockService {
         if (cmd.unitCost() != null
                 && cmd.unitCost().scale() > 4
                 && cmd.unitCost().stripTrailingZeros().scale() > 4) {
+
             throw new InvalidStockOperationException(
                     "Unit cost supports at most 4 decimal places");
         }
 
         if (rawMaterialRepository.receive(
-                cmd.rawMaterialId(), cmd.quantity()) == 0) {
+                cmd.rawMaterialId(),
+                cmd.quantity()) == 0) {
+
             throw new StockNotFoundException(
                     "Raw material not found: " + cmd.rawMaterialId());
         }
@@ -120,16 +179,21 @@ public class RawMaterialStockService {
                         "Goods receipt " + receipt.getReceiptNumber(),
                         actorUserId));
 
+        audit(
+                "RAW_MATERIAL_RECEIVED",
+                String.valueOf(cmd.rawMaterialId()),
+                "quantity=" + cmd.quantity().toPlainString()
+                        + ", receipt=" + receipt.getReceiptNumber());
+
         return after;
     }
 
-
     @Transactional
-    public RawMaterial adjust(Long id, BigDecimal delta, String reason, Long actorUserId) {
-        if (id == null || id <= 0) {
-            throw new InvalidStockOperationException(
-                    "A valid raw material ID is required");
-        }
+    public RawMaterial adjust(
+            Long id,
+            BigDecimal delta,
+            String reason,
+            Long actorUserId) {
 
         applyAdjustment(
                 id,
@@ -139,9 +203,22 @@ public class RawMaterialStockService {
                 null,
                 actorUserId);
 
-        return load(id);
+        RawMaterial after = load(id);
+
+        audit(
+                "RAW_MATERIAL_ADJUSTED",
+                String.valueOf(id),
+                "delta=" + delta.toPlainString()
+                        + ", onHand=" + after.getOnHand().toPlainString()
+                        + ", reason=" + AuditText.shorten(reason, 500));
+
+        return after;
     }
 
+    /**
+     * Same as adjust(), but the ledger row points at the inventory audit.
+     * Returns the ledger row. The inventory audit service records the audit event.
+     */
     @Transactional
     public StockMovement adjustForAudit(
             Long id,
@@ -214,20 +291,40 @@ public class RawMaterialStockService {
                         actorUserId));
     }
 
-
     private RawMaterial load(Long id) {
         return rawMaterialRepository.findById(id)
-                .orElseThrow(() -> new StockNotFoundException("Raw material not found: " + id));
+                .orElseThrow(() -> new StockNotFoundException(
+                        "Raw material not found: " + id));
+    }
+
+    private void audit(
+            String action,
+            String entityId,
+            String details) {
+
+        auditRecorder.record(
+                AuditEvent.of(
+                        action,
+                        "RAW_MATERIAL",
+                        entityId,
+                        details));
     }
 
     private static void requirePositive(BigDecimal qty) {
-        if (qty == null || qty.signum() <= 0) throw new InvalidStockOperationException("Quantity must be greater than zero");
+        if (qty == null || qty.signum() <= 0) {
+            throw new InvalidStockOperationException(
+                    "Quantity must be greater than zero");
+        }
+
         checkScale(qty);
     }
 
     private static void checkScale(BigDecimal qty) {
         if (qty.stripTrailingZeros().scale() > QTY_SCALE) {
-            throw new InvalidStockOperationException("Quantity supports at most " + QTY_SCALE + " decimal places");
+            throw new InvalidStockOperationException(
+                    "Quantity supports at most "
+                            + QTY_SCALE
+                            + " decimal places");
         }
     }
 }

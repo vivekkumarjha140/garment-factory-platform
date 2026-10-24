@@ -115,6 +115,7 @@
       admin-password: ${BOOTSTRAP_ADMIN_PASSWORD:}
       admin-name: ${BOOTSTRAP_ADMIN_NAME:Administrator}
   inventory:
+    default-low-stock-threshold: ${INVENTORY_DEFAULT_LOW_STOCK_THRESHOLD:10}
     reservation:
       ttl-minutes: ${INVENTORY_RESERVATION_TTL_MINUTES:30}
     sweeper:

@@ -36,7 +36,8 @@ class CatalogAdminApiIT {
 
     @Container
     @ServiceConnection
-    static final MySQLContainer MYSQL = new MySQLContainer("mysql:8.4");
+    static final MySQLContainer MYSQL = new MySQLContainer("mysql:8.4")
+            .withCommand("--log-bin-trust-function-creators=1");
 
     @Autowired
     private Environment environment;

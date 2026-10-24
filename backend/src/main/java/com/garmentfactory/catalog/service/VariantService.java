@@ -4,6 +4,7 @@ import static com.garmentfactory.catalog.entity.VariantStatus.ACTIVE;
 import static com.garmentfactory.catalog.entity.VariantStatus.ARCHIVED;
 import static com.garmentfactory.catalog.entity.VariantStatus.INACTIVE;
 
+import com.garmentfactory.catalog.api.VariantCreated;
 import com.garmentfactory.audit.api.AuditEvent;
 import com.garmentfactory.audit.api.AuditRecorder;
 import com.garmentfactory.catalog.dto.CatalogDtos.VariantRequest;
@@ -23,6 +24,7 @@ import java.util.regex.Pattern;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.context.ApplicationEventPublisher;
 
 /**
  * Variants (size and colour of a product). The SKU is globally unique and immutable; a product can
@@ -43,11 +45,17 @@ public class VariantService {
     private final ProductRepository products;
     private final ProductVariantRepository variants;
     private final AuditRecorder audit;
+    private final ApplicationEventPublisher events;
 
-    public VariantService(ProductRepository products, ProductVariantRepository variants, AuditRecorder audit) {
+    public VariantService(
+            ProductRepository products,
+            ProductVariantRepository variants,
+            AuditRecorder audit,
+            ApplicationEventPublisher events) {
         this.products = products;
         this.variants = variants;
         this.audit = audit;
+        this.events = events;
     }
 
     @Transactional
@@ -74,6 +82,11 @@ public class VariantService {
         applyDetails(variant, request.size(), request.colorName(), request.colorHex(),
                 request.priceOverride(), request.weightG(), request.barcode(), 0L);
         variants.save(variant);
+        events.publishEvent(new VariantCreated(
+                variant.getId(),
+                variant.getPublicId(),
+                sku
+        ));
 
         audit.record(AuditEvent.of("VARIANT_CREATED", "VARIANT", variant.getPublicId(),
                 "sku=" + sku + ", size=" + variant.getSize() + ", color=" + variant.getColorName()));

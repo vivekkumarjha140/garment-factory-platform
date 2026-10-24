@@ -21,4 +21,22 @@ describe('visibleNavItems', () => {
     it('never shows a signed-in screen to a signed-out person, even with the permission', () => {
         expect(labels(false, [Permission.USER_VIEW])).toEqual(['Home', 'Shop'])
     })
+
+    it('shows Inventory to people who can view stock, without the audit screen', () => {
+        expect(labels(true, [Permission.STOCK_VIEW])).toEqual(['Home', 'Shop', 'Inventory', 'Account'])
+    })
+
+    it('shows Stock audits only to people holding the audit permission', () => {
+        expect(labels(true, [Permission.INVENTORY_AUDIT])).toEqual(['Home', 'Shop', 'Stock audits', 'Account'])
+    })
+
+    it('shows both inventory screens to a warehouse manager', () => {
+        expect(labels(true, [Permission.STOCK_VIEW, Permission.STOCK_ADJUST, Permission.INVENTORY_AUDIT])).toEqual([
+            'Home',
+            'Shop',
+            'Inventory',
+            'Stock audits',
+            'Account',
+        ])
+    })
 })

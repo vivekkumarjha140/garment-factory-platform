@@ -5,4 +5,7 @@ export const Permission = {
     USER_BLOCK: 'USER_BLOCK',
     ROLE_MANAGE: 'ROLE_MANAGE',
     AUDIT_VIEW: 'AUDIT_VIEW',
+    STOCK_VIEW: 'STOCK_VIEW',
+    STOCK_ADJUST: 'STOCK_ADJUST',
+    INVENTORY_AUDIT: 'INVENTORY_AUDIT',
 } as const
