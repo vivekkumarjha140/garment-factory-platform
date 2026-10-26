@@ -114,6 +114,10 @@
       admin-email: ${BOOTSTRAP_ADMIN_EMAIL:}
       admin-password: ${BOOTSTRAP_ADMIN_PASSWORD:}
       admin-name: ${BOOTSTRAP_ADMIN_NAME:Administrator}
+    razorpay:
+      key-id: ${RAZORPAY_KEY_ID:}
+      key-secret: ${RAZORPAY_KEY_SECRET:}
+      webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:}
   inventory:
     default-low-stock-threshold: ${INVENTORY_DEFAULT_LOW_STOCK_THRESHOLD:10}
     reservation:

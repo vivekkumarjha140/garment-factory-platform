@@ -52,6 +52,7 @@ class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                         .requestMatchers("/api/v1/system/ping").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/payments/razorpay/webhook").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/catalog/**").permitAll()
                         .requestMatchers("/api/v1/auth/sessions", "/api/v1/auth/sessions/**",
                                 "/api/v1/auth/logout-all", "/api/v1/auth/change-password").authenticated()
