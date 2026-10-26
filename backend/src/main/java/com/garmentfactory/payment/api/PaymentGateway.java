@@ -12,4 +12,7 @@ public interface PaymentGateway {
     GatewayPayment fetchPayment(String providerPaymentId);
 
     boolean verifyWebhookSignature(String rawBody, String signature);
+
+    /** Full or partial refund of a captured payment. A duplicate full refund is rejected by the provider. */
+    GatewayRefund refundPayment(String providerPaymentId, long amountPaise, String receipt);
 }

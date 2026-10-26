@@ -7,6 +7,8 @@ import com.garmentfactory.payment.entity.PaymentRecordStatus;
 import com.garmentfactory.payment.repository.PaymentRepository;
 import java.time.Instant;
 import java.util.Optional;
+
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,10 +27,13 @@ public class PaymentSettlementService {
 
     private final PaymentRepository payments;
     private final OrderPaymentApi orders;
+    private final ApplicationEventPublisher events;
 
-    public PaymentSettlementService(PaymentRepository payments, OrderPaymentApi orders) {
+    public PaymentSettlementService(PaymentRepository payments, OrderPaymentApi orders,
+                                    ApplicationEventPublisher events) {
         this.payments = payments;
         this.orders = orders;
+        this.events = events;
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
@@ -48,6 +53,9 @@ public class PaymentSettlementService {
         OrderPaymentApi.Outcome outcome = orders.confirmPayment(payment.getOrderId(), payment.getAmount());
         if (outcome == OrderPaymentApi.Outcome.AMOUNT_MISMATCH) {
             return Settlement.AMOUNT_MISMATCH;
+        }
+        if (outcome == OrderPaymentApi.Outcome.PAID_ORDER_NOT_FULFILLABLE) {
+            events.publishEvent(new RefundNeededEvent(payment.getOrderId()));   // runs only after this transaction commits
         }
         payment.setProviderPaymentId(providerPaymentId);
         payment.setStatus(PaymentRecordStatus.CAPTURED);

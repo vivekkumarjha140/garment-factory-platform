@@ -35,4 +35,7 @@ public interface OrderPaymentApi {
 
     /** PENDING -> FAILED only. A failure never overrides a paid order. */
     void markPaymentFailed(long orderId);
+
+    /** PAID -> REFUNDED once the provider has accepted a full refund. No-op in any other state. */
+    void markRefunded(long orderId);
 }

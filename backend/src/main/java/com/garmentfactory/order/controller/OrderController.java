@@ -1,8 +1,10 @@
 package com.garmentfactory.order.controller;
 
+import com.garmentfactory.order.dto.OrderDtos.CancelOrderRequest;
 import com.garmentfactory.order.dto.OrderDtos.OrderResponse;
 import com.garmentfactory.order.dto.OrderDtos.PlaceOrderRequest;
 import com.garmentfactory.order.mapper.OrderMapper;
+import com.garmentfactory.order.service.OrderCancellationService;
 import com.garmentfactory.order.service.OrderCreationService;
 import com.garmentfactory.order.service.OrderQueryService;
 import com.garmentfactory.order.service.PlaceOrderCommand;
@@ -33,10 +35,12 @@ public class OrderController {
 
     private final OrderCreationService creation;
     private final OrderQueryService queries;
+    private final OrderCancellationService cancellation;
 
-    public OrderController(OrderCreationService creation, OrderQueryService queries) {
+    public OrderController(OrderCreationService creation, OrderQueryService queries, OrderCancellationService cancellation) {
         this.creation = creation;
         this.queries = queries;
+        this.cancellation = cancellation;
     }
 
     /** 201 for a new order, 200 with Idempotent-Replayed: true when the same Idempotency-Key was already used. */
@@ -53,7 +57,8 @@ public class OrderController {
         }
         PlacedOrder placed = creation.place(user.id(),
                 new PlaceOrderCommand(key, request.shippingAddressId().trim(),
-                        request.billingAddressId() == null ? null : request.billingAddressId().trim()));
+                        request.billingAddressId() == null ? null : request.billingAddressId().trim(),
+                        request.paymentMethod() == null ? "ONLINE" : request.paymentMethod()));
         ResponseEntity.BodyBuilder response = ResponseEntity.status(placed.replayed() ? HttpStatus.OK : HttpStatus.CREATED);
         if (placed.replayed()) {
             response.header("Idempotent-Replayed", "true");
@@ -64,5 +69,13 @@ public class OrderController {
     @GetMapping("/{orderNumber}")
     public OrderResponse get(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable String orderNumber) {
         return OrderMapper.toResponse(queries.getForUser(user.id(), orderNumber));
+    }
+
+    /** Cancels the customer's own order while that is still possible. Repeating it is harmless (200). */
+    @PostMapping("/{orderNumber}/cancel")
+    public OrderResponse cancel(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable String orderNumber,
+                                @Valid @RequestBody(required = false) CancelOrderRequest request) {
+        return OrderMapper.toResponse(cancellation.cancelByCustomer(user.id(), orderNumber,
+                request == null ? null : request.reason()));
     }
 }

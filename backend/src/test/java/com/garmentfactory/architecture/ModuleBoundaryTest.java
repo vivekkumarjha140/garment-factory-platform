@@ -3,6 +3,7 @@ package com.garmentfactory.architecture;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 
+import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
@@ -11,7 +12,10 @@ import com.tngtech.archunit.lang.ArchRule;
  * Guards the modular-monolith boundaries. The business modules do not exist yet, so most rules
  * pass vacuously today (allowEmptyShould). They start protecting the code as each module lands.
  */
-@AnalyzeClasses(packages = "com.garmentfactory")
+@AnalyzeClasses(
+        packages = "com.garmentfactory",
+        importOptions = {ImportOption.DoNotIncludeTests.class}
+)
 class ModuleBoundaryTest {
 
     private static final String[] BUSINESS_MODULES = {

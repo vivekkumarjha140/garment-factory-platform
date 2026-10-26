@@ -37,6 +37,9 @@ public class OrderItem {
     @Column(nullable = false, updatable = false, length = 64)
     private String sku;
 
+    @Column(name = "hsn_code", updatable = false, length = 8)
+    private String hsnCode;
+
     @Column(nullable = false, updatable = false, length = 20)
     private String size;
 

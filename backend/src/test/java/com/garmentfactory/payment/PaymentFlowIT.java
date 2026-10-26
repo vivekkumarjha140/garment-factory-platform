@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.garmentfactory.payment.api.GatewayOrder;
 import com.garmentfactory.payment.api.GatewayPayment;
+import com.garmentfactory.payment.api.GatewayRefund;
 import com.garmentfactory.payment.api.PaymentGateway;
 import com.garmentfactory.shared.exception.ApiException;
 import com.garmentfactory.support.ApiClient;
@@ -107,6 +108,11 @@ class PaymentFlowIT {
         @Override
         public boolean verifyWebhookSignature(String rawBody, String signature) {
             return signature != null && signature.equals(sign(WEBHOOK_SECRET, rawBody));
+        }
+
+        @Override
+        public GatewayRefund refundPayment(String providerPaymentId, long amountPaise, String receipt) {
+            return null;
         }
     }
 

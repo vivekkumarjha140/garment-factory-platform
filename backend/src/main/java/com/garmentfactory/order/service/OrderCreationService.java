@@ -1,5 +1,6 @@
 package com.garmentfactory.order.service;
 
+import com.garmentfactory.catalog.api.VariantTaxInfo;
 import com.garmentfactory.cart.api.CheckoutCart;
 import com.garmentfactory.cart.api.CheckoutCartApi;
 import com.garmentfactory.cart.api.CheckoutLine;
@@ -8,10 +9,12 @@ import com.garmentfactory.customer.api.CheckoutAddressLookup;
 import com.garmentfactory.identity.api.UserContacts;
 import com.garmentfactory.inventory.api.InventoryApi;
 import com.garmentfactory.inventory.api.StockLine;
+import com.garmentfactory.order.api.OrderConfirmedEvent;
 import com.garmentfactory.order.entity.AddressSnapshot;
 import com.garmentfactory.order.entity.Order;
 import com.garmentfactory.order.entity.OrderItem;
 import com.garmentfactory.order.entity.OrderStatus;
+import com.garmentfactory.order.entity.OrderStatusHistory;
 import com.garmentfactory.order.entity.PaymentMethod;
 import com.garmentfactory.order.entity.PaymentStatus;
 import com.garmentfactory.order.entity.ProductionStatus;
@@ -20,7 +23,6 @@ import com.garmentfactory.order.entity.StatusDimension;
 import com.garmentfactory.order.repository.OrderItemRepository;
 import com.garmentfactory.order.repository.OrderRepository;
 import com.garmentfactory.order.repository.OrderStatusHistoryRepository;
-import com.garmentfactory.order.entity.OrderStatusHistory;
 import com.garmentfactory.shared.exception.ApiException;
 import com.garmentfactory.shared.numbering.NumberSequences;
 import java.math.BigDecimal;
@@ -29,8 +31,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -42,6 +46,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * Cart -> order, all or nothing, in ONE transaction: lock cart, validate, create the order and its frozen
  * lines, reserve stock, redeem the coupon, empty the cart. Any failure rolls everything back (including
  * the order number), so a half-made order can never exist.
+ * Online orders wait for payment (PENDING_PAYMENT). Cash-on-delivery orders are confirmed at once and their
+ * stock is deducted straight away.
  * Not itself @Transactional: the idempotency race handling needs to run after the transaction has ended.
  */
 @Service
@@ -59,13 +65,17 @@ public class OrderCreationService {
     private final UserContacts contacts;
     private final InventoryApi inventory;
     private final NumberSequences sequences;
+    private final VariantTaxInfo variantTax;
+    private final CodEligibility codEligibility;
+    private final ApplicationEventPublisher events;
     private final long paymentWindowMinutes;
 
     public OrderCreationService(PlatformTransactionManager txManager, OrderRepository orders,
                                 OrderItemRepository orderItems, OrderStatusHistoryRepository history,
                                 OrderQueryService queries, CheckoutCartApi checkoutCart,
                                 CheckoutAddressLookup addresses, UserContacts contacts, InventoryApi inventory,
-                                NumberSequences sequences,
+                                NumberSequences sequences, VariantTaxInfo variantTax, CodEligibility codEligibility,
+                                ApplicationEventPublisher events,
                                 @Value("${inventory.reservation.ttl-minutes:30}") long paymentWindowMinutes) {
         this.tx = new TransactionTemplate(txManager);
         this.tx.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
@@ -78,6 +88,9 @@ public class OrderCreationService {
         this.contacts = contacts;
         this.inventory = inventory;
         this.sequences = sequences;
+        this.variantTax = variantTax;
+        this.codEligibility = codEligibility;
+        this.events = events;
         this.paymentWindowMinutes = paymentWindowMinutes;
     }
 
@@ -109,6 +122,9 @@ public class OrderCreationService {
     }
 
     private PlacedOrder create(long userId, PlaceOrderCommand command, String hash) {
+        PaymentMethod method = PaymentMethod.valueOf(command.paymentMethod());
+        boolean cod = method == PaymentMethod.COD;
+
         CheckoutAddress ship = addresses.findForUser(userId, command.shippingAddressId())
                 .orElseThrow(OrderCreationService::addressNotFound);
         CheckoutAddress bill = command.billingAddressId() == null || command.billingAddressId().isBlank()
@@ -130,11 +146,15 @@ public class OrderCreationService {
         BigDecimal shipping = cart.shippingCharge().setScale(2, RoundingMode.HALF_UP);
         BigDecimal grandTotal = subtotal.subtract(discount).add(taxTotal).add(shipping);
 
+        if (cod) {
+            codEligibility.require(userId, grandTotal);   // cart is locked, so parallel orders cannot beat the limit
+        }
+
         Instant now = Instant.now();
         Order order = new Order();
         order.setOrderNumber(OrderNumbers.format(sequences.next(OrderNumbers.SEQUENCE_KEY), now));
         order.setUserId(userId);
-        order.setPaymentMethod(PaymentMethod.ONLINE);
+        order.setPaymentMethod(method);
         order.setCustomerName(contact.fullName());
         order.setCustomerEmail(contact.email());
         order.setCustomerPhone(contact.phone());
@@ -150,10 +170,16 @@ public class OrderCreationService {
         order.setIdempotencyKey(command.idempotencyKey());
         order.setRequestHash(hash);
         order.setPlacedAt(now);
-        // Computed before the stock reservation is made, so the order always expires no later than its stock hold.
-        order.setPaymentDueAt(now.plus(Duration.ofMinutes(paymentWindowMinutes)));
+        if (cod) {
+            order.setOrderStatus(OrderStatus.CONFIRMED);
+            order.setPaymentStatus(PaymentStatus.COD_PENDING);
+        } else {
+            // Computed before the stock reservation is made, so the order always expires no later than its stock hold.
+            order.setPaymentDueAt(now.plus(Duration.ofMinutes(paymentWindowMinutes)));
+        }
         order = orders.saveAndFlush(order);
 
+        Map<Long, String> hsnCodes = variantTax.hsnCodes(cart.lines().stream().map(CheckoutLine::variantId).toList());
         List<OrderItem> items = new ArrayList<>();
         List<StockLine> stockLines = new ArrayList<>();
         for (CheckoutLine line : cart.lines()) {
@@ -162,6 +188,7 @@ public class OrderCreationService {
             item.setVariantId(line.variantId());
             item.setProductName(line.productName());
             item.setSku(line.sku());
+            item.setHsnCode(hsnCodes.get(line.variantId()));
             item.setSize(line.size());
             item.setColor(line.colorName());
             item.setUnitPrice(line.unitPrice());
@@ -175,15 +202,22 @@ public class OrderCreationService {
         }
         orderItems.saveAll(items);
 
+        String reason = cod ? "Order placed (cash on delivery)" : "Order placed";
         List<OrderStatusHistory> trail = history.saveAll(List.of(
-                row(order, StatusDimension.ORDER, OrderStatus.PENDING_PAYMENT.name(), userId),
-                row(order, StatusDimension.PAYMENT, PaymentStatus.PENDING.name(), userId),
-                row(order, StatusDimension.PRODUCTION, ProductionStatus.NOT_REQUIRED.name(), userId),
-                row(order, StatusDimension.SHIPMENT, ShipmentStatus.NOT_SHIPPED.name(), userId)));
+                row(order, StatusDimension.ORDER, order.getOrderStatus().name(), userId, reason),
+                row(order, StatusDimension.PAYMENT, order.getPaymentStatus().name(), userId, reason),
+                row(order, StatusDimension.PRODUCTION, ProductionStatus.NOT_REQUIRED.name(), userId, reason),
+                row(order, StatusDimension.SHIPMENT, ShipmentStatus.NOT_SHIPPED.name(), userId, reason)));
 
         inventory.reserveForOrder(order.getId(), stockLines, userId);   // 409 INSUFFICIENT_STOCK rolls everything back
+        if (cod) {
+            inventory.consumeForOrder(order.getId(), userId);            // nobody pays online, so deduct at once
+        }
         checkoutCart.completeCheckout(userId, order.getId(), cart);
 
+        if (cod) {
+            events.publishEvent(new OrderConfirmedEvent(order.getId()));
+        }
         return new PlacedOrder(new OrderDetails(order, items, trail), false);
     }
 
@@ -195,8 +229,8 @@ public class OrderCreationService {
         return new AddressSnapshot(a.recipientName(), a.phone(), a.line1(), a.line2(), a.city(), a.state(), a.pincode());
     }
 
-    private static OrderStatusHistory row(Order order, StatusDimension dimension, String to, long userId) {
-        return OrderStatusHistory.of(order.getId(), dimension, null, to, userId, "Order placed");
+    private static OrderStatusHistory row(Order order, StatusDimension dimension, String to, long userId, String reason) {
+        return OrderStatusHistory.of(order.getId(), dimension, null, to, userId, reason);
     }
 
     private static ApiException addressNotFound() {

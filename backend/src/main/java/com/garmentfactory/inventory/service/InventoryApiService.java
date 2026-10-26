@@ -46,6 +46,12 @@ public class InventoryApiService implements InventoryApi {
     }
 
     @Override
+    @Transactional
+    public int restockForOrder(long orderId, String reason, Long actorUserId) {
+        return stockService.restockForOrder(orderId, reason, actorUserId);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public Optional<StockAvailability> availability(long variantId) {
         return stockRepository.findByVariantId(variantId).map(InventoryApiService::toAvailability);

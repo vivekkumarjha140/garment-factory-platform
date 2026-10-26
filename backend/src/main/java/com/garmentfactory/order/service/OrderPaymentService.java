@@ -15,6 +15,7 @@ import com.garmentfactory.order.repository.OrderItemRepository;
 import com.garmentfactory.order.repository.OrderRepository;
 import com.garmentfactory.order.repository.OrderStatusHistoryRepository;
 import com.garmentfactory.shared.exception.ApiException;
+import com.garmentfactory.order.api.OrderConfirmedEvent;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -25,23 +26,27 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.context.ApplicationEventPublisher;
 
 @Service
 public class OrderPaymentService implements OrderPaymentApi {
 
     private static final Logger log = LoggerFactory.getLogger(OrderPaymentService.class);
 
+    private final ApplicationEventPublisher events;
     private final OrderRepository orders;
     private final OrderItemRepository items;
     private final OrderStatusHistoryRepository history;
     private final InventoryApi inventory;
 
     public OrderPaymentService(OrderRepository orders, OrderItemRepository items,
-                               OrderStatusHistoryRepository history, InventoryApi inventory) {
+                               OrderStatusHistoryRepository history, InventoryApi inventory,
+                               ApplicationEventPublisher events) {
         this.orders = orders;
         this.items = items;
         this.history = history;
         this.inventory = inventory;
+        this.events = events;
     }
 
     @Override
@@ -104,6 +109,7 @@ public class OrderPaymentService implements OrderPaymentApi {
             return Outcome.PAID_ORDER_NOT_FULFILLABLE;
         }
         moveOrder(order, OrderStatus.CONFIRMED, "Payment confirmed");
+        events.publishEvent(new OrderConfirmedEvent(order.getId()));
         orders.save(order); // <-- Yahan add karein
         return Outcome.CONFIRMED;
     }
@@ -114,6 +120,16 @@ public class OrderPaymentService implements OrderPaymentApi {
         Order order = orders.lockById(orderId).orElseThrow(OrderPaymentService::notFound);
         if (order.getPaymentStatus() == PaymentStatus.PENDING) {
             movePayment(order, PaymentStatus.FAILED, "Payment failed");
+        }
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void markRefunded(long orderId) {
+        Order order = orders.lockById(orderId).orElseThrow(OrderPaymentService::notFound);
+        if (order.getPaymentStatus() == PaymentStatus.PAID) {
+            movePayment(order, PaymentStatus.REFUNDED, "Refund issued");
+            orders.save(order);
         }
     }
 

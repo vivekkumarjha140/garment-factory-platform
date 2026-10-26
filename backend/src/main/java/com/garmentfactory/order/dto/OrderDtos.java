@@ -1,6 +1,7 @@
 package com.garmentfactory.order.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -11,8 +12,13 @@ public final class OrderDtos {
     private OrderDtos() {
     }
 
+    /** paymentMethod is ONLINE (default when omitted) or COD. */
     public record PlaceOrderRequest(@NotBlank @Size(max = 36) String shippingAddressId,
-                                    @Size(max = 36) String billingAddressId) {
+                                    @Size(max = 36) String billingAddressId,
+                                    @Pattern(regexp = "ONLINE|COD") String paymentMethod) {
+    }
+
+    public record CancelOrderRequest(@Size(max = 200) String reason) {
     }
 
     public record AddressResponse(String recipientName, String phone, String line1, String line2, String city,

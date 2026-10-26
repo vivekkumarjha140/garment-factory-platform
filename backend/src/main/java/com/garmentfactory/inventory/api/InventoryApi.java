@@ -21,6 +21,9 @@ public interface InventoryApi {
     /** Turns the order's ACTIVE reservations into real deductions. Returns how many were consumed. */
     int consumeForOrder(long orderId, Long actorUserId);
 
+    /** Puts the stock of a cancelled, already-deducted order back. Idempotent. Returns how many lines were returned. */
+    int restockForOrder(long orderId, String reason, Long actorUserId);
+
     Optional<StockAvailability> availability(long variantId);
 
     Map<Long, StockAvailability> availability(Collection<Long> variantIds);

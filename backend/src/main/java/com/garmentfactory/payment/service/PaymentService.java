@@ -46,7 +46,7 @@ public class PaymentService {
     public InitiatePaymentResponse initiate(long userId, String orderNumber) {
         PayableOrder order = orders.lockPayableForUser(userId, orderNumber);   // order lock first
 
-        Optional<Payment> latest = payments.findFirstByOrderIdOrderByIdDesc(order.orderId());
+        Optional<Payment> latest = payments.findFirstByOrderIdAndPaymentTypeOrderByIdDesc(order.orderId(), PaymentType.FULL);
         Payment payment;
         if (latest.isPresent() && latest.get().getStatus() != PaymentRecordStatus.CAPTURED) {
             payment = latest.get();
@@ -78,7 +78,7 @@ public class PaymentService {
      */
     public SyncResponse sync(long userId, String orderNumber, String providerPaymentId) {
         PayableOrder order = orders.viewForUser(userId, orderNumber);
-        Payment payment = payments.findFirstByOrderIdOrderByIdDesc(order.orderId())
+        Payment payment = payments.findFirstByOrderIdAndPaymentTypeOrderByIdDesc(order.orderId(), PaymentType.FULL)
                 .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT, "PAYMENT_NOT_STARTED", "Payment has not been started for this order."));
 
         GatewayPayment fetched = gateway.fetchPayment(providerPaymentId);

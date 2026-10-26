@@ -21,4 +21,6 @@ public interface StockMovementRepository extends Repository<StockMovement, Long>
 
     Page<StockMovement> findByReferenceTypeAndReferenceIdOrderByCreatedAtDescIdDesc(
             String referenceType, String referenceId, Pageable pageable);
+
+    boolean existsByReferenceTypeAndReferenceId(String referenceType, String referenceId);
 }

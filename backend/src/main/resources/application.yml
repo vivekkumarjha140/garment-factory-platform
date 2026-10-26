@@ -118,6 +118,21 @@
       key-id: ${RAZORPAY_KEY_ID:}
       key-secret: ${RAZORPAY_KEY_SECRET:}
       webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:}
+    business:
+      name: ${BUSINESS_NAME:Garment Factory (set BUSINESS_NAME)}
+      gstin: ${BUSINESS_GSTIN:}
+      address-line1: ${BUSINESS_ADDRESS_LINE1:}
+      address-line2: ${BUSINESS_ADDRESS_LINE2:}
+      city: ${BUSINESS_CITY:}
+      pincode: ${BUSINESS_PINCODE:}
+      state: ${BUSINESS_STATE:Delhi}
+      state-code: ${BUSINESS_STATE_CODE:07}
+      email: ${BUSINESS_EMAIL:}
+      phone: ${BUSINESS_PHONE:}
+    cod:
+      enabled: ${COD_ENABLED:true}
+      max-order-amount: ${COD_MAX_ORDER_AMOUNT:5000.00}
+      max-open-orders: ${COD_MAX_OPEN_ORDERS:2}
   inventory:
     default-low-stock-threshold: ${INVENTORY_DEFAULT_LOW_STOCK_THRESHOLD:10}
     reservation:

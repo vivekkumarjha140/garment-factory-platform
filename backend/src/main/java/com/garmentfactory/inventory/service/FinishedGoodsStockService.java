@@ -33,6 +33,7 @@ public class FinishedGoodsStockService {
     static final String REF_RECEIPT = "STOCK_RECEIPT";
     static final String REF_MANUAL = "MANUAL";
     static final String REF_AUDIT = "INVENTORY_AUDIT";
+    static final String REF_ORDER_CANCEL = "ORDER_CANCEL";
 
     private final FinishedGoodsStockRepository stockRepository;
     private final StockMovementRepository movementRepository;
@@ -293,6 +294,43 @@ public class FinishedGoodsStockService {
 
         return active.size();
     }
+
+    /**
+     * Puts the stock of a cancelled order back (it had already been deducted). Idempotent: once a ledger row with
+     * reference ORDER_CANCEL/<orderId> exists, nothing more is returned. Returns how many lines were returned.
+     */
+    @Transactional
+    public int restockForOrder(
+            Long orderId,
+            String reason,
+            Long actorUserId) {
+
+        String ref = String.valueOf(orderId);
+
+        if (movementRepository.existsByReferenceTypeAndReferenceId(REF_ORDER_CANCEL, ref)) {
+            return 0;
+        }
+
+        List<StockReservation> consumed = new ArrayList<>(
+                reservationRepository.findByOrderIdAndStatus(orderId, ReservationStatus.CONSUMED));
+
+        consumed.sort(
+                Comparator.comparing(StockReservation::getVariantId)
+                        .thenComparing(StockReservation::getId));
+
+        for (StockReservation r : consumed) {
+            applyAdjustment(
+                    r.getVariantId(),
+                    r.getQuantity(),
+                    reason,
+                    REF_ORDER_CANCEL,
+                    ref,
+                    actorUserId);
+        }
+
+        return consumed.size();
+    }
+
 
     // ------------------------------------------------- receipts / adjustments
 

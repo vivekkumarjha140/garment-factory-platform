@@ -4,6 +4,7 @@ import com.garmentfactory.payment.api.GatewayOrder;
 import com.garmentfactory.payment.api.GatewayPayment;
 import com.garmentfactory.payment.api.PaymentGateway;
 import com.garmentfactory.shared.exception.ApiException;
+import com.garmentfactory.payment.api.GatewayRefund;
 import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.Map;
@@ -61,6 +62,18 @@ public class RazorpayGateway implements PaymentGateway {
                 .retrieve().body(Map.class));
         return new GatewayPayment(text(body, "id"), text(body, "order_id"), number(body, "amount"),
                 text(body, "currency"), text(body, "status"), text(body, "error_description"));
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public GatewayRefund refundPayment(String providerPaymentId, long amountPaise, String receipt) {
+        requireConfigured();
+        Map<String, Object> body = call(() -> http.post().uri("/payments/{id}/refund", providerPaymentId)
+                .headers(h -> h.setBasicAuth(props.keyId(), props.keySecret()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("amount", amountPaise, "speed", "normal", "receipt", receipt))
+                .retrieve().body(Map.class));
+        return new GatewayRefund(text(body, "id"), text(body, "status"));
     }
 
     @Override
