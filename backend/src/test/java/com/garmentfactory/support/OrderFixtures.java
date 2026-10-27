@@ -179,4 +179,18 @@ public class OrderFixtures {
         assertThat(captureByWebhook(order, initiate(order), unique("evt_")).status()).isEqualTo(200);
         return order;
     }
+
+    /** A staff account holding one role, ready to use; returns its access token. */
+    public String newStaff(String role) throws Exception {
+        String email = "staff-" + UUID.randomUUID() + "@example.com";
+        Response created = as(admin, "POST", "/api/v1/admin/users",
+                "{\"fullName\":\"Staff Member\",\"email\":\"" + email + "\",\"roles\":[\"" + role + "\"]}");
+        assertThat(created.status()).isEqualTo(201);
+        String token = emails.latestTokenTo(email);
+        assertThat(api.post("/api/v1/auth/reset-password",
+                "{\"token\":\"" + token + "\",\"newPassword\":\"" + PASSWORD + "\"}").status()).isEqualTo(204);
+        Response login = api.post("/api/v1/auth/login", ApiClient.loginJson(email, PASSWORD));
+        assertThat(login.status()).isEqualTo(200);
+        return login.accessToken();
+    }
 }

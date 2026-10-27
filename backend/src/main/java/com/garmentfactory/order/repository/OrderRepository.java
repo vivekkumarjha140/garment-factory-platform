@@ -11,16 +11,27 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.data.domain.Page;
 
-public interface OrderRepository extends JpaRepository<Order, Long> {
+public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecificationExecutor<Order> {
 
     Optional<Order> findByUserIdAndIdempotencyKey(Long userId, String idempotencyKey);
 
     /** Scoped to the owner: someone else's order number simply is not found. */
     Optional<Order> findByOrderNumberAndUserId(String orderNumber, Long userId);
+
+    /** Unscoped lookup for authorized staff/admin operations. */
+    Optional<Order> findByOrderNumber(String orderNumber);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select o from Order o where o.orderNumber = :orderNumber")
+    Optional<Order> lockByOrderNumber(@Param("orderNumber") String orderNumber);
+
+    Page<Order> findByUserId(Long userId, Pageable pageable);
 
     /** Row lock until the transaction ends. Always take this lock BEFORE any payment row lock. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)

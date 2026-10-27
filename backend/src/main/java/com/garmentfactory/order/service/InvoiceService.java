@@ -67,21 +67,51 @@ public class InvoiceService {
     }
 
     /** The PDF of the user's own order. 404 for someone else's order, 409 while the order is not paid and confirmed. */
+
+    /** The PDF of the user's own order. 404 for someone else's order, 409 while the order is not paid and confirmed. */
     public InvoiceFile fileForUser(long userId, String orderNumber) {
         Order order = orders.findByOrderNumberAndUserId(orderNumber, userId)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "ORDER_NOT_FOUND", "Order not found."));
+                .orElseThrow(() -> new ApiException(
+                        HttpStatus.NOT_FOUND,
+                        "ORDER_NOT_FOUND",
+                        "Order not found."
+                ));
 
-        Optional<Invoice> existing = invoices.findByOrderId(order.getId()).filter(i -> i.getPdfStorageKey() != null);
+        return fileFor(order);
+    }
+
+    /** The PDF of any order, for staff. */
+    public InvoiceFile fileForStaff(String orderNumber) {
+        Order order = orders.findByOrderNumber(orderNumber)
+                .orElseThrow(() -> new ApiException(
+                        HttpStatus.NOT_FOUND,
+                        "ORDER_NOT_FOUND",
+                        "Order not found."
+                ));
+
+        return fileFor(order);
+    }
+
+    private InvoiceFile fileFor(Order order) {
+        Optional<Invoice> existing = invoices.findByOrderId(order.getId())
+                .filter(invoice -> invoice.getPdfStorageKey() != null);
+
         if (existing.isPresent()) {
-            Optional<byte[]> stored = storage.get(existing.get().getPdfStorageKey());
+            Invoice invoice = existing.get();
+            Optional<byte[]> stored = storage.get(invoice.getPdfStorageKey());
+
             if (stored.isPresent()) {
-                return new InvoiceFile(fileName(existing.get()), stored.get());
+                return new InvoiceFile(fileName(invoice), stored.get());
             }
-            Invoice rebuilt = tx.execute(status -> ensureLocked(order.getId(), true));   // the file was lost
+
+            // The stored PDF is missing; rebuild it while holding the order lock.
+            Invoice rebuilt = tx.execute(status -> ensureLocked(order.getId(), true));
             return read(rebuilt);
         }
+
         return read(ensureForOrder(order.getId()));
     }
+
 
     private InvoiceFile read(Invoice invoice) {
         byte[] pdf = storage.get(invoice.getPdfStorageKey()).orElseThrow(

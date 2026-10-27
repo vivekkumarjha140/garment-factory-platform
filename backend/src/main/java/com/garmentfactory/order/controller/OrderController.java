@@ -17,13 +17,9 @@ import java.util.regex.Pattern;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
+import com.garmentfactory.order.dto.OrderDtos.OrderSummaryResponse;
+import com.garmentfactory.shared.web.PageResponse;
 
 /** The signed-in customer's own orders. There is no user id in any path. */
 @RestController
@@ -69,6 +65,14 @@ public class OrderController {
     @GetMapping("/{orderNumber}")
     public OrderResponse get(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable String orderNumber) {
         return OrderMapper.toResponse(queries.getForUser(user.id(), orderNumber));
+    }
+
+    /** The signed-in customer's order history, newest first. */
+    @GetMapping
+    public PageResponse<OrderSummaryResponse> list(@AuthenticationPrincipal AuthenticatedUser user,
+                                                   @RequestParam(defaultValue = "0") int page,
+                                                   @RequestParam(defaultValue = "10") int size) {
+        return PageResponse.from(queries.listForUser(user.id(), page, size).map(OrderMapper::toSummary));
     }
 
     /** Cancels the customer's own order while that is still possible. Repeating it is harmless (200). */

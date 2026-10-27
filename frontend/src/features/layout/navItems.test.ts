@@ -30,6 +30,14 @@ describe('visibleNavItems', () => {
         expect(labels(true, [Permission.INVENTORY_AUDIT])).toEqual(['Home', 'Shop', 'Stock audits', 'Account'])
     })
 
+    it('shows Orders to people who can view orders', () => {
+        expect(labels(true, [Permission.ORDER_VIEW])).toEqual(['Home', 'Shop', 'Orders', 'Account'])
+    })
+
+    it('does not show Orders for the fulfil or cancel permission alone', () => {
+        expect(labels(true, [Permission.ORDER_FULFIL, Permission.ORDER_CANCEL])).toEqual(['Home', 'Shop', 'Account'])
+    })
+
     it('shows both inventory screens to a warehouse manager', () => {
         expect(labels(true, [Permission.STOCK_VIEW, Permission.STOCK_ADJUST, Permission.INVENTORY_AUDIT])).toEqual([
             'Home',

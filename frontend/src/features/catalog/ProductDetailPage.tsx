@@ -6,6 +6,7 @@ import { toApiError, userMessage } from '../../api/errors'
 import { Alert } from '../../components/ui/Alert'
 import { discountPercent, formatPrice } from '../../lib/format'
 import { usePageTitle } from '../../lib/usePageTitle'
+import { AddToCart } from '../cart/AddToCart'
 import type { PublicProduct } from '../../types/catalog'
 import {
     displayedPrice,
@@ -216,7 +217,7 @@ function ProductView({ product }: { product: PublicProduct }) {
                             <p className="text-sm text-slate-600 dark:text-slate-400">Choose a colour and a size to see the exact price.</p>
                         )}
                     </div>
-
+                    <AddToCart key={selected?.id ?? 'none'} variant={selected} productName={product.name} />
                     {product.customizable && (
                         <p className="rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-900 dark:border-indigo-900 dark:bg-indigo-950 dark:text-indigo-200">
                             This product can be custom printed with your design.

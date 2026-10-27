@@ -3,6 +3,7 @@ import { useAppDispatch, useAppSelector } from '../../app/hooks'
 import { Button } from '../../components/ui/Button'
 import { signOut } from '../auth/authActions'
 import { usePermissions } from '../auth/usePermissions'
+import { CartLink } from '../cart/CartLink'
 import { ThemeToggle } from '../ui/ThemeToggle'
 import { NAV_ITEMS, visibleNavItems } from './navItems'
 
@@ -49,6 +50,7 @@ export function AppLayout() {
                         ))}
                     </nav>
                     <div className="flex items-center gap-3 text-sm">
+                        <CartLink />
                         <ThemeToggle />
                         {status === 'authenticated' && (
                             <>

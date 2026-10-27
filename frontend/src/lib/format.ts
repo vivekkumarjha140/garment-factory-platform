@@ -11,3 +11,22 @@ export function discountPercent(price: number, mrp: number): number {
     if (!(mrp > price) || mrp <= 0) return 0
     return Math.round(((mrp - price) / mrp) * 100)
 }
+
+const DATE_TIME = new Intl.DateTimeFormat('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'Asia/Kolkata',
+})
+const DATE_ONLY = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })
+
+/** An ISO timestamp as Indian time, e.g. "26 Oct 2026, 3:30 pm". */
+export function formatDateTime(iso: string): string {
+    return DATE_TIME.format(new Date(iso))
+}
+
+export function formatDate(iso: string): string {
+    return DATE_ONLY.format(new Date(iso))
+}

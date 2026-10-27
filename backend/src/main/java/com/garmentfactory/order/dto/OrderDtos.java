@@ -42,4 +42,9 @@ public final class OrderDtos {
                                 BigDecimal grandTotal, BigDecimal amountPaid, List<OrderItemResponse> items,
                                 List<StatusChangeResponse> history) {
     }
+
+    public record OrderSummaryResponse(String orderNumber, String orderStatus, String paymentStatus,
+                                       String shipmentStatus, String paymentMethod, Instant placedAt,
+                                       BigDecimal grandTotal, int itemCount, String firstItemName) {
+    }
 }

@@ -8,6 +8,7 @@ export function AccountTabs() {
             {[
                 { to: '/account', label: 'Profile', end: true },
                 { to: '/account/addresses', label: 'Addresses', end: false },
+                { to: '/account/orders', label: 'Orders', end: false },
             ].map((tab) => (
                 <NavLink
                     key={tab.to}
